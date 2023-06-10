@@ -1,0 +1,63 @@
+{
+  "name": "admin",
+  "description": "Admin Panel for internal administrator",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development  next dev -p 13010",
+    "build": "next build",
+    "start": "next start -p 13010",
+    "lint": "next lint",
+    "cypress:open": "cypress open",
+    "cypress:headless": "cypress run",
+    "ci:dev": "start-server-and-test dev http://localhost:13010 cypress:open",
+    "ci:run": "start-server-and-test start http://localhost:13010 cypress:headless"
+  },
+  "dependencies": {
+    "@emotion/react": "11.10.4",
+    "@emotion/styled": "11.10.4",
+    "@lexical/react": "^0.7.5",
+    "@mui/icons-material": "^5.10.16",
+    "@mui/lab": "^5.0.0-alpha.114",
+    "@mui/material": "5.10.5",
+    "@mui/styles": "^5.11.1",
+    "@mui/x-date-pickers": "^5.0.11",
+    "@reduxjs/toolkit": "^1.9.1",
+    "@types/draft-js": "^0.11.10",
+    "@types/node": "18.11.9",
+    "@types/react": "18.0.25",
+    "@types/react-dom": "18.0.9",
+    "date-fns": "^2.29.3",
+    "draft-js-export-html": "^1.4.1",
+    "formik": "^2.2.9",
+    "lexical": "^0.7.5",
+    "next": "13.1.6",
+    "next-runtime": "^2.4.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-redux": "^8.0.5",
+    "share-components": "workspace:^",
+    "typescript": "4.9.3",
+    "yup": "^0.32.11"
+  },
+  "devDependencies": {
+    "@badeball/cypress-cucumber-preprocessor": "16.0.3",
+    "@bahmutov/cypress-esbuild-preprocessor": "2.1.5",
+    "@napi-rs/triples": "^1.1.0",
+    "@types/body-parser": "^1.19.2",
+    "cypress": "^12.11.0",
+    "eslint": "^8.29.0",
+    "eslint-config-next": "^13.0.6",
+    "sass": "^1.56.1",
+    "start-server-and-test": "^1.14.0"
+  },
+  "cypress-cucumber-preprocessor": {
+    "nonGlobalStepDefinitions": true,
+    "stepDefinitions": [
+      "cypress/e2e/step_definitions/**/*.cy.js",
+      "cypress/e2e/step_definitions/*.{cy.js,js}"
+    ],
+    "filterSpecs": true,
+    "omitFiltered": true
+  }
+}

@@ -1,0 +1,378 @@
+name: ECS Deployment - Clinic
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'terraform/**'
+      - 'apps/admin/**'
+      - 'apps/hward/**'
+      - 'apps/report-portal/**'
+      - '.github/workflows/**'
+      - '!.github/workflows/deploy-clinic.yml'
+
+env:
+  environment: dev
+  app_name: avixo2-clinic
+  secret_id: web/avixo2-clinic
+  monorepo_apps: clinic
+  aws_account_id: ${{ secrets.AVIXO_AWS_ID }} # Refer to AWS Account ID
+
+jobs:
+  build-image:
+    runs-on: [ubuntu-20.04]
+    permissions:
+      id-token: write
+      contents: read
+      checks: write
+    timeout-minutes: 30
+    steps:
+      - name : Login to get AWS Credentials
+        uses: aws-actions/configure-aws-credentials@e1e17a757e536f70e52b5a12b2e8d1d1c60e04ef # v2.0.0
+        with:
+          aws-region: ap-southeast-1
+          mask-aws-account-id: false
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/github-{1}-{2}-role', env.aws_account_id, env.app_name, env.environment) }}
+
+      - name: Checkout
+        uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+        with:
+          fetch-depth: 0 # fetch all history so multiple commits can be scanned
+
+      - name: Generate short sha
+        uses: benjlevesque/short-sha@36eb8c530990ceac5ddf3c0bc32d02c677ae9706 # v2.2
+        id: short-sha
+
+      - name: Post initiation to a Slack channel
+        id: slack-start
+        uses: slackapi/slack-github-action@007b2c3c751a190b6f0f040e47ed024deaa72844 # v1.23.0
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        with:
+          channel-id: ${{ secrets[format('AVIXO_{0}_SLACK_CHANNEL_ID', env.environment)] }}
+          payload: |
+            {
+              "text": "",
+              "attachments": [
+                {
+                  "pretext": " <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id}}| Github Action docker image build started.>",
+                  "color": "dbab09",
+                  "author_name": "${{ github.actor }}",
+                  "author_icon": "https://ca.slack-edge.com/T20NRFDJL-U01UD7T11NF-879e7fd5029e-72",
+                  "fields": [
+                    {
+                      "title": "Repository",
+                      "short": true,
+                      "value": "${{ github.repository }}"
+                    },
+                    {
+                      "title": "Branch",
+                      "short": true,
+                      "value": "${{ github.ref_name }}"
+                    },
+                    {
+                      "title": "Docker image",
+                      "short": true,
+                      "value": "${{ env.app_name }}"
+                    },
+                    {
+                      "title": "Image Tag",
+                      "short": true,
+                      "value": "${{ steps.short-sha.outputs.sha }}"
+                    }
+                  ]
+                }
+              ]
+            }
+
+      - name: Detect secret
+        run: |
+          docker pull zricethezav/gitleaks:v8.15.3
+          docker run -v $GITHUB_WORKSPACE:/path zricethezav/gitleaks:v8.15.3 detect --source="/path" -v --redact
+
+      - name: Setup Node.js
+        uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c # v3.6.0
+        with:
+          node-version: 18.x
+          cache: "yarn"
+
+      - name: Install Node.js dependencies
+        run: yarn install --immutable --inline-builds
+
+      - name: Run linters
+        run: yarn workspace ${{ env.monorepo_apps }} lint
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@2f9f10ea3fa2eed41ac443fee8bfbd059af2d0a4 # v1.6.0
+      
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@e81a89b1732b9c48d79cd809d8d81d79c4647a18 # v2.1.0
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4b4e9c3e2d4531116a6f8ba8e71fc6e2cb6e6c8c # v2.5.0  
+      
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@507c2f2dc502c992ad446e3d7a5dfbe311567a96 # v4.3.0
+        with:
+          # list of Docker images to use as base name for tags
+          images: |
+            "${{ steps.login-ecr.outputs.registry }}/${{ env.app_name }}"
+          # generate Docker tags based on the following events/attributes
+          tags: |
+            type=sha,prefix=,suffix=,format=short
+            latest
+
+      - name: Build, tag, and push image to Amazon ECR
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671 # v4.0.0
+        with:
+          context: .
+          file: ${{ format('apps/{0}/Dockerfile', env.monorepo_apps) }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          
+      - name: Set color
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6.4.1
+        if: always()
+        id: set-result
+        env:
+          job_status: "${{ job.status }}"
+        with:
+          script: |
+            let { job_status } = process.env
+
+            switch (job_status)
+            {
+              case "success":
+                return "good";
+                break;
+              case "failure":
+                return "danger";
+                break;
+              case "cancelled":
+                return "#808080";
+                break;
+
+            }
+            return job_status
+          result-encoding: string
+
+      - name: Post completion to a Slack channel
+        id: slack-end
+        if: always()
+        uses: slackapi/slack-github-action@007b2c3c751a190b6f0f040e47ed024deaa72844 # v1.23.0
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        with:
+          channel-id: ${{ secrets[format('AVIXO_{0}_SLACK_CHANNEL_ID', env.environment)] }}
+          update-ts: ${{ steps.slack-start.outputs.ts }}
+          payload: |
+            {
+              "text": "",
+              "attachments": [
+                {
+                  "pretext": " <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id}}| Github Action docker image build ${{ job.status }}.>",
+                  "color": "${{ steps.set-result.outputs.result }}",
+                  "author_name": "${{ github.actor }}",
+                  "author_icon": "https://ca.slack-edge.com/T20NRFDJL-U01UD7T11NF-879e7fd5029e-72",
+                  "fields": [
+                    {
+                      "title": "Repository",
+                      "short": true,
+                      "value": "${{ github.repository }}"
+                    },
+                    {
+                      "title": "Branch",
+                      "short": true,
+                      "value": "${{ github.ref_name }}"
+                    },
+                    {
+                      "title": "Docker image",
+                      "short": true,
+                      "value": "${{ env.app_name }}"
+                    },
+                    {
+                      "title": "Image Tag",
+                      "short": true,
+                      "value": "${{ steps.short-sha.outputs.sha }}"
+                    }
+                  ]
+                }
+              ]
+            }
+
+  deploy-ecs:
+    needs: [build-image]
+    runs-on: [ubuntu-20.04]
+    permissions:
+      id-token: write
+      contents: read
+      checks: write
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        environment: [dev, staging]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+
+      - name: Generate short sha
+        uses: benjlevesque/short-sha@36eb8c530990ceac5ddf3c0bc32d02c677ae9706 # v2.2
+        id: short-sha
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1e17a757e536f70e52b5a12b2e8d1d1c60e04ef # v2.0.0
+        with:
+          aws-region: ap-southeast-1
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/github-{1}-{2}-role', env.aws_account_id, env.app_name, matrix.environment) }}
+
+      - name: Retrieve Secrets - app
+        uses: t-botz/aws-secrets-manager-read-action@d9500d25a610ad4997d1243f03b6420401e36728 # v2.1.3
+        with:
+          secret-id: ${{ format('{0}/{1}', env.secret_id, matrix.environment) }}
+          mask-json-values: true
+          keys-as-outputs: true
+          keys-as-env-vars: true
+
+      - name: Post initiation to a Slack channel
+        id: slack
+        uses: slackapi/slack-github-action@007b2c3c751a190b6f0f040e47ed024deaa72844 # v1.23.0
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        with:
+          # Slack channel id, channel name, or user id to post message.
+          # See also: https://api.slack.com/methods/chat.postMessage#channels
+          channel-id: ${{ secrets[format('AVIXO_{0}_SLACK_CHANNEL_ID', matrix.environment)] }}
+          # For posting a rich message using Block Kit
+          payload: |
+            {
+              "text": "",
+              "attachments": [
+                {
+                  "pretext": " <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id}}| Github Action pipeline execution started.>",
+                  "color": "dbab09",
+                  "author_name": "${{ github.actor }}",
+                  "author_icon": "https://ca.slack-edge.com/T20NRFDJL-U01UD7T11NF-879e7fd5029e-72",
+                  "fields": [
+                    {
+                      "title": "Repository",
+                      "short": true,
+                      "value": "${{ github.repository }}"
+                    },
+                    {
+                      "title": "Branch",
+                      "short": true,
+                      "value": "${{ github.ref_name }}"
+                    },
+                    {
+                      "title": "Workflow name",
+                      "short": true,
+                      "value": "${{ github.workflow }}"
+                    },
+                    {
+                      "title": "Commit SHA",
+                      "short": true,
+                      "value": "${{ steps.short-sha.outputs.sha }}"
+                    }
+                  ]
+                }
+              ]
+            }
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@2f9f10ea3fa2eed41ac443fee8bfbd059af2d0a4 # v1.6.0
+
+      - name: Retrieve task definition
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ format('{0}-{1}', env.app_name, matrix.environment) }} --query taskDefinition > task-definition.json
+
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@61b0c00c3743b70987a73a1faf577f0d167d1574 # v1.1.3
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.app_name }}
+          image: "${{ steps.login-ecr.outputs.registry }}/${{ env.app_name }}:${{ steps.short-sha.outputs.sha }}" 
+
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@df9643053eda01f169e64a0e60233aacca83799a # v1.4.11
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: '${{ env.app_name }}-${{ matrix.environment }}-service'
+          cluster: '${{ matrix.environment }}-cluster'
+          wait-for-service-stability: true
+
+      - name: Set color
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6.4.1
+        if: always()
+        id: set-result
+        env:
+          job_status: '${{ job.status }}'
+        with:
+          script: |
+            let { job_status } = process.env
+
+            switch (job_status)
+            {
+              case "success":
+                return "good";
+                break;
+              case "failure":
+                return "danger";
+                break;
+              case "cancelled":
+                return "#808080";
+                break;
+
+            }
+            return job_status
+          result-encoding: string
+
+      - name: Post completion to a Slack channel
+        if: always()
+        uses: slackapi/slack-github-action@007b2c3c751a190b6f0f040e47ed024deaa72844 # v1.23.0
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        with:
+          channel-id: ${{ secrets[format('AVIXO_{0}_SLACK_CHANNEL_ID', matrix.environment)] }}
+          update-ts: ${{ steps.slack.outputs.ts }}
+          payload: |
+            {
+              "text": "",
+              "attachments": [
+                { 
+                  "pretext": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id}}| Github Action pipeline execution Pipeline ${{ job.status }}.> ",
+                  "color": "${{ steps.set-result.outputs.result }}",
+                  "author_name": "${{ github.actor }}",
+                  "author_icon": "https://ca.slack-edge.com/T20NRFDJL-U01UD7T11NF-879e7fd5029e-72",
+                  "fields": [
+                    {
+                      "title": "Repository",
+                      "short": true,
+                      "value": "${{ github.repository }}"
+                    },
+                    {
+                      "title": "Branch",
+                      "short": true,
+                      "value": "${{ github.ref_name }}"
+                    },
+                    {
+                      "title": "Workflow name",
+                      "short": true,
+                      "value": "${{ github.workflow }}"
+                    },
+                    {
+                      "title": "Commit SHA",
+                      "short": true,
+                      "value": "${{ steps.short-sha.outputs.sha }}"
+                    }
+                  ]
+                }
+              ]
+            }

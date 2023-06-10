@@ -1,0 +1,69 @@
+{
+  "name": "clinic",
+  "description": "Clinic Portal",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development next dev -p 13011",
+    "build": "next build",
+    "start": "next start -p 13011",
+    "lint": "next lint",
+    "cypress:open": "cypress open",
+    "cypress:headless": "cypress run",
+    "ci:dev": "start-server-and-test dev http://localhost:13011/login cypress:open",
+    "ci:run": "start-server-and-test start http://localhost:13011/login cypress:headless"
+  },
+  "dependencies": {
+    "@emotion/react": "11.10.4",
+    "@emotion/styled": "11.10.4",
+    "@fullcalendar/core": "^6.1.4",
+    "@fullcalendar/daygrid": "^6.1.4",
+    "@fullcalendar/interaction": "^6.1.4",
+    "@fullcalendar/moment": "^6.1.4",
+    "@fullcalendar/react": "^6.1.4",
+    "@fullcalendar/timegrid": "^6.1.4",
+    "@mui/icons-material": "^5.10.16",
+    "@mui/material": "5.10.5",
+    "@mui/x-date-pickers": "^5.0.12",
+    "@mui/x-date-pickers-pro": "^5.0.18",
+    "@reduxjs/toolkit": "^1.9.1",
+    "@types/node": "18.11.9",
+    "@types/react": "18.0.25",
+    "@types/react-dom": "18.0.9",
+    "date-fns": "^2.29.3",
+    "formik": "^2.2.9",
+    "mui-nested-menu": "^3.2.0",
+    "next": "13.1.6",
+    "next-runtime": "^2.4.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-redux": "^8.0.5",
+    "share-components": "workspace:^",
+    "typescript": "4.9.3",
+    "yup": "^0.32.11"
+  },
+  "devDependencies": {
+    "@badeball/cypress-cucumber-preprocessor": "16.0.3",
+    "@bahmutov/cypress-esbuild-preprocessor": "2.1.5",
+    "cypress": "^12.11.0",
+    "eslint": "^8.29.0",
+    "eslint-config-airbnb": "^19.0.4",
+    "eslint-config-next": "^13.0.6",
+    "eslint-plugin-import": "^2.26.0",
+    "eslint-plugin-jsx-a11y": "^6.6.1",
+    "eslint-plugin-prettier": "^4.2.1",
+    "eslint-plugin-react": "^7.31.11",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "prettier": "^2.8.1",
+    "start-server-and-test": "^1.14.0"
+  },
+  "cypress-cucumber-preprocessor": {
+    "nonGlobalStepDefinitions": true,
+    "stepDefinitions": [
+      "cypress/e2e/step_definitions/**/*.cy.js",
+      "cypress/e2e/step_definitions/*.{cy.js,js}"
+    ],
+    "filterSpecs": true,
+    "omitFiltered": true
+  }
+}

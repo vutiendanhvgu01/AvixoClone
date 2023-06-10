@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "es2015",
+    "baseUrl": "./",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "paths": {
+      "common/*": ["common/*"],
+      "modules/*": ["modules/*"],
+      "@AvixoIcons/*": ["../share-components/src/components/AvixoIcons/*"],
+      "@ShareComponents/*": ["../share-components/src/components/*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "modules/practitioner/components/common/select-menu-item.tsx"],
+  "exclude": ["node_modules"]
+}

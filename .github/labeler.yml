@@ -1,0 +1,4 @@
+hward:
+  - apps/hward/**/*
+self-report:
+  - apps/report-portal/**/*

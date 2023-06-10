@@ -1,0 +1,384 @@
+name: E2E Test Cypress
+
+env:
+  environment: dev
+  aws_account_id: 150131428018 # Refer to AWS Account ID
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - e2etest*
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  filter-path:
+    runs-on: ubuntu-latest
+    outputs:
+      admin: ${{ steps.changes.outputs.admin }}
+      hward: ${{ steps.changes.outputs.hward }}
+      clinic: ${{ steps.changes.outputs.clinic }}
+      report-portal: ${{ steps.changes.outputs.report-portal }}
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+
+      - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2.11.1
+        id: changes
+        with:
+          filters: |
+            admin:
+              - 'apps/admin/**'
+              - 'apps/share-components/**'
+              - 'package.json'
+              - 'yarn.lock'
+            hward:
+              - 'apps/hward/**'
+              - 'apps/share-components/**'
+              - 'package.json'
+              - 'yarn.lock'
+            clinic:
+              - 'apps/clinic/**'
+              - 'apps/share-components/**'
+              - 'package.json'
+              - 'yarn.lock'
+            report-portal:
+              - 'apps/report-portal/**'
+              - 'apps/share-components/**'
+              - 'package.json'
+              - 'yarn.lock'
+
+  e2e-admin:
+    if: ${{ needs.filter-path.outputs.admin == 'true' }}
+    runs-on: ubuntu-latest
+    needs: filter-path
+    env:
+      app_name: avixo2-admin
+      secret_id: web/avixo2-admin
+      monorepo_apps: admin
+    permissions:
+      id-token: write
+      contents: read
+    timeout-minutes: 30
+    container:
+      image: public.ecr.aws/cypress-io/cypress/included:12.9.0
+      options: --privileged
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c # v3.6.0
+        with:
+          node-version: 18.x
+
+      - name: Configure AWS Credentials 📡
+        uses: aws-actions/configure-aws-credentials@e1e17a757e536f70e52b5a12b2e8d1d1c60e04ef # v2.0.0
+        with:
+          aws-region: ap-southeast-1
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/github-{1}-{2}-role', env.aws_account_id, env.app_name, env.environment) }}
+
+      - name: Retrieve Secrets - app
+        uses: t-botz/aws-secrets-manager-read-action@d9500d25a610ad4997d1243f03b6420401e36728 # v2.1.3
+        with:
+          secret-id: ${{ format('{0}/{1}', env.secret_id, env.environment) }}
+          mask-json-values: true
+          keys-as-outputs: false
+          keys-as-env-vars: true
+          append-to-env-file: apps/admin/.env.local
+
+      - name: Install OpenVPN
+        run: |
+          apt-get update
+          apt-get install -y openvpn openvpn-systemd-resolved sudo
+
+      - name: Inject OVPN to file
+        run: 'echo "$VPN_OVPN" > .github/workflows/client.ovpn'
+        shell: bash
+        env:
+          VPN_OVPN: ${{secrets.AVIXO_VPN_OVPN}}
+
+      - name: Connect to VPN
+        uses: kota65535/github-openvpn-connect-action@9bff2bca2a134890419a96d791ac143b08b37fae # v2.0.2
+        with:
+          config_file: .github/workflows/client.ovpn
+          username: ${{ secrets.AVIXO_VPN_USERNAME }}
+          password: ${{ secrets.AVIXO_VPN_PASSWORD }}
+          client_key: ${{ secrets.AVIXO_VPN_CLIENT_KEY }}
+
+      - name: Install & build 🏗
+        uses: cypress-io/github-action@a29a621b736c9a8547ba0236cc9cee1e49725bd5 # v5.6.1
+        with:
+          # Disable running of tests within install job
+          working-directory: apps/admin
+          build: yarn build:admin
+          runTests: false
+
+      - name: Cypress run 🕵🏻‍♂️
+        uses: cypress-io/github-action@a29a621b736c9a8547ba0236cc9cee1e49725bd5 # v5.6.1
+        with:
+          install: false
+          working-directory: apps/admin
+          start: yarn start:admin
+          wait-on: 'http://localhost:13010'
+          wait-on-timeout: 120
+          browser: chrome
+          record: true
+          parallel: false
+          quiet: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CYPRESS_RECORD_KEY: ${{ secrets.ADMIN_CYPRESS_RECORD_KEY }}
+
+      - name: Upload screenshots 📸
+        uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: cypress/screenshots
+  e2e-hward:
+    if: ${{ needs.filter-path.outputs.hward == 'true' }}
+    runs-on: ubuntu-latest
+    needs: filter-path
+    env:
+      app_name: avixo2-hward
+      secret_id: web/avixo2-hward
+      monorepo_apps: hward
+    permissions:
+      id-token: write
+      contents: read
+    timeout-minutes: 30
+    container: public.ecr.aws/cypress-io/cypress/included:12.9.0
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c # v3.6.0
+        with:
+          node-version: 18.x
+
+      - name: Configure AWS Credentials 📡
+        uses: aws-actions/configure-aws-credentials@e1e17a757e536f70e52b5a12b2e8d1d1c60e04ef # v2.0.0
+        with:
+          aws-region: ap-southeast-1
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/github-{1}-{2}-role', env.aws_account_id, env.app_name, env.environment) }}
+
+      - name: Retrieve Secrets - app
+        uses: t-botz/aws-secrets-manager-read-action@d9500d25a610ad4997d1243f03b6420401e36728 # v2.1.3
+        with:
+          secret-id: ${{ format('{0}/{1}', env.secret_id, env.environment) }}
+          mask-json-values: true
+          keys-as-outputs: false
+          keys-as-env-vars: true
+          append-to-env-file: apps/hward/.env.local
+
+      - name: Install & build 🏗
+        uses: cypress-io/github-action@a29a621b736c9a8547ba0236cc9cee1e49725bd5 # v5.6.1
+        with:
+          # Disable running of tests within install job
+          working-directory: apps/hward
+          build: yarn build:hward
+          runTests: false
+
+      - name: Cypress run 🕵🏻‍♂️
+        uses: cypress-io/github-action@a29a621b736c9a8547ba0236cc9cee1e49725bd5 # v5.6.1
+        with:
+          install: false
+          working-directory: apps/hward
+          start: yarn start:hward
+          wait-on: 'http://localhost:13040'
+          wait-on-timeout: 120
+          browser: chrome
+          record: true
+          parallel: false
+          quiet: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CYPRESS_RECORD_KEY: ${{ secrets.HWARD_CYPRESS_RECORD_KEY }}
+
+      - name: Upload screenshots 📸
+        uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: cypress/screenshots
+  e2e-clinic:
+    if: ${{ needs.filter-path.outputs.clinic == 'true' }}
+    runs-on: ubuntu-latest
+    needs: filter-path
+    env:
+      app_name: avixo2-clinic
+      secret_id: web/avixo2-clinic
+      monorepo_apps: clinic
+    permissions:
+      id-token: write
+      contents: read
+    timeout-minutes: 30
+    container:
+      image: public.ecr.aws/cypress-io/cypress/included:12.9.0
+      options: --privileged
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c # v3.6.0
+        with:
+          node-version: 18.x
+
+      - name: Configure AWS Credentials 📡
+        uses: aws-actions/configure-aws-credentials@e1e17a757e536f70e52b5a12b2e8d1d1c60e04ef # v2.0.0
+        with:
+          aws-region: ap-southeast-1
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/github-{1}-{2}-role', env.aws_account_id, env.app_name, env.environment) }}
+
+      - name: Retrieve Secrets - app
+        uses: t-botz/aws-secrets-manager-read-action@d9500d25a610ad4997d1243f03b6420401e36728 # v2.1.3
+        with:
+          secret-id: ${{ format('{0}/{1}', env.secret_id, env.environment) }}
+          mask-json-values: true
+          keys-as-outputs: false
+          keys-as-env-vars: true
+          append-to-env-file: apps/clinic/.env.local
+
+      - name: Install OpenVPN
+        run: |
+          apt-get update
+          apt-get install -y openvpn openvpn-systemd-resolved apt sudo
+
+      - name: Inject OVPN to file
+        run: 'echo "$VPN_OVPN" > .github/workflows/client.ovpn'
+        shell: bash
+        env:
+          VPN_OVPN: ${{secrets.AVIXO_VPN_OVPN}}
+
+      - name: Connect to VPN
+        uses: kota65535/github-openvpn-connect-action@9bff2bca2a134890419a96d791ac143b08b37fae # v2.0.2
+        with:
+          config_file: .github/workflows/client.ovpn
+          username: ${{ secrets.AVIXO_VPN_USERNAME }}
+          password: ${{ secrets.AVIXO_VPN_PASSWORD }}
+          client_key: ${{ secrets.AVIXO_VPN_CLIENT_KEY }}
+
+      - name: Install & build 🏗
+        uses: cypress-io/github-action@a29a621b736c9a8547ba0236cc9cee1e49725bd5 # v5.6.1
+        with:
+          # Disable running of tests within install job
+          working-directory: apps/clinic
+          build: yarn build:clinic
+          runTests: false
+
+      - name: Cypress run 🕵🏻‍♂️
+        uses: cypress-io/github-action@a29a621b736c9a8547ba0236cc9cee1e49725bd5 # v5.6.1
+        with:
+          install: false
+          working-directory: apps/clinic
+          start: yarn start:clinic
+          wait-on: 'http://localhost:13011'
+          wait-on-timeout: 120
+          browser: chrome
+          record: true
+          parallel: false
+          quiet: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CYPRESS_RECORD_KEY: ${{ secrets.CLINIC_CYPRESS_RECORD_KEY }}
+
+      - name: Upload screenshots 📸
+        uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: cypress/screenshots
+  e2e-report-portal:
+    if: ${{ needs.filter-path.outputs.report-portal == 'true' }}
+    runs-on: ubuntu-latest
+    needs: filter-path
+    env:
+      app_name: avixo2-report-portal
+      secret_id: web/avixo2-report-portal
+      monorepo_apps: report-portal
+    permissions:
+      id-token: write
+      contents: read
+    timeout-minutes: 30
+    container: public.ecr.aws/cypress-io/cypress/included:12.9.0
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c # v3.6.0
+        with:
+          node-version: 18.x
+
+      - name: Configure AWS Credentials 📡
+        uses: aws-actions/configure-aws-credentials@e1e17a757e536f70e52b5a12b2e8d1d1c60e04ef # v2.0.0
+        with:
+          aws-region: ap-southeast-1
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/github-{1}-{2}-role', env.aws_account_id, env.app_name, env.environment) }}
+
+      - name: Retrieve Secrets - app
+        uses: t-botz/aws-secrets-manager-read-action@d9500d25a610ad4997d1243f03b6420401e36728 # v2.1.3
+        with:
+          secret-id: ${{ format('{0}/{1}', env.secret_id, env.environment) }}
+          mask-json-values: true
+          keys-as-outputs: false
+          keys-as-env-vars: true
+          append-to-env-file: apps/report-portal/.env.local
+
+      - name: Install & build 🏗
+        uses: cypress-io/github-action@a29a621b736c9a8547ba0236cc9cee1e49725bd5 # v5.6.1
+        with:
+          # Disable running of tests within install job
+          working-directory: apps/report-portal
+          build: yarn build:report
+          runTests: false
+
+      - name: Cypress run 🕵🏻‍♂️
+        uses: cypress-io/github-action@a29a621b736c9a8547ba0236cc9cee1e49725bd5 # v5.6.1
+        with:
+          install: false
+          working-directory: apps/report-portal
+          start: yarn start:report
+          wait-on: 'http://localhost:13041'
+          wait-on-timeout: 120
+          browser: chrome
+          record: true
+          parallel: false
+          quiet: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CYPRESS_RECORD_KEY: ${{ secrets.REPORT_PORTAL_CYPRESS_RECORD_KEY }}
+          E2E_TEST: true
+
+      - name: Upload screenshots 📸
+        uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+        if: failure()
+        with:
+          name: cypress-screenshots
+          path: cypress/screenshots
+
+  no-changes:
+    needs: filter-path
+    if: ${{ needs.filter-path.outputs.hward == 'false' && needs.filter-path.outputs.admin == 'false' && needs.filter-path.outputs.clinic == 'false' && needs.filter-path.outputs.report-portal == 'false'}}
+    runs-on: ubuntu-latest
+    steps:
+      - name: No changes
+        run: echo "No changes to the app, skipping e2e tests"
+  e2e-required-check:
+    needs: [e2e-admin, e2e-hward, e2e-clinic, e2e-report-portal, no-changes]
+    name: E2E Required check
+    # This is necessary since a failed/skipped dependent job would cause this job to be skipped
+    if: always()
+    runs-on: ubuntu-20.04
+    steps:
+      # If any jobs we depend on fail, we will fail since this is a required check
+      # NOTE: A timeout is considered a failure
+      - name: Check for failures
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "One of the dependent jobs have failed. You may need to re-run it." && exit 1
